@@ -3,10 +3,10 @@ using OpenQA.Selenium.Firefox;
 using OpenQA.Selenium;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
-using System.Collections.ObjectModel;
 using Microsoft.Office.Interop.Outlook;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Reflection;
 
 namespace Hull_Timetable_To_Outlook
 {
@@ -15,9 +15,8 @@ namespace Hull_Timetable_To_Outlook
         private static List<Lecture> timetable_lectures = new List<Lecture>();
 
         private static readonly string timetable_url = "https://timetable.hull.ac.uk/";
-        private static string m_username = "508670";
-        private static string m_password = "aidanfray1";
-        private static string m_email = "afray@hotmail.co.uk";
+        private static string m_username = "";
+        private static string m_password = "";
 
         private static IWebDriver driver;
 
@@ -27,6 +26,8 @@ namespace Hull_Timetable_To_Outlook
 
         static void Main(string[] args)
         {
+            GrabUserDetails();
+
             try
             {
                 //Checks for the geckodriver install
@@ -42,12 +43,17 @@ namespace Hull_Timetable_To_Outlook
                 return;
             }
 
-            //GrabUserDetails();
             LoginToPage();
             var Elements = WorkThroughTable();
             GrabTimeTableData(Elements);
             driver.Quit();
             SyncToOutlook();
+        }
+        static void Restart()
+        {
+            var fileName = Assembly.GetExecutingAssembly().Location;
+            System.Diagnostics.Process.Start(fileName);
+            Environment.Exit(0);
         }
 
         static void GrabUserDetails()
@@ -56,7 +62,27 @@ namespace Hull_Timetable_To_Outlook
             m_username = Console.ReadLine();
 
             Console.Write("Please enter your password: ");
-            m_password = Console.ReadLine();
+
+            ConsoleKeyInfo consoleKey;
+            do
+            {
+                consoleKey = Console.ReadKey(true);
+
+                if (consoleKey.Key == ConsoleKey.Backspace)
+                {
+                    //Takes a value off the string
+                    m_password = m_password.Substring(0, m_password.Length - 1);
+                    Console.Write("\b");
+                }
+                else
+                {
+                    //Obssurces the key
+                    m_password += consoleKey.KeyChar;
+                    Console.Write("*");
+                }
+            }
+            while (consoleKey.Key != ConsoleKey.Enter);
+            Console.WriteLine();
         }
         static void LoginToPage()
         {
@@ -69,11 +95,23 @@ namespace Hull_Timetable_To_Outlook
             //Login click
             ClickElement("bLogin");
 
-            // Selects value
-            ClickElement("LinkBtn_studentMyTimetableNEW");
+            try
+            {
+                // Selects value
+                ClickElement("LinkBtn_studentMyTimetableNEW");
 
-            //Shows timetable
-            ClickElement("bGetTimetable");
+                //Shows timetable
+                ClickElement("bGetTimetable");
+            }
+            catch (System.Exception)
+            {
+                driver.Quit();
+                Console.WriteLine("\n ## Login deatils were not correct try again! ##");
+                Console.WriteLine("Press enter to restart...");
+                Console.ReadKey();
+                Restart();
+            }
+            
         }
 
         static void SyncToOutlook()
