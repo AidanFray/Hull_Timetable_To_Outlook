@@ -4,6 +4,8 @@ using OpenQA.Selenium;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
+using Microsoft.Office.Interop.Outlook;
+using System.Runtime.InteropServices;
 
 namespace Hull_Timetable_To_Outlook
 {
@@ -12,21 +14,39 @@ namespace Hull_Timetable_To_Outlook
         private static List<Lecture> timetable_lectures = new List<Lecture>();
 
         private static readonly string timetable_url = "https://timetable.hull.ac.uk/";
-        private static string m_username = "";
-        private static string m_password = "";
+        private static string m_username = "508670";
+        private static string m_password = "aidanfray1";
+        private static string m_email = "afray@hotmail.co.uk";
 
-        private static IWebDriver driver = new FirefoxDriver();
+        private static IWebDriver driver;
         
         //Definitions
         private static DateTime week1 = new DateTime(2017, 8, 21);
         private static readonly string[] daysOfTheWeek = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday" };
 
         static void Main(string[] args)
-        { 
-            GrabUserDetails();
+        {
+            try
+            {
+                //Checks for the geckodriver install
+                //https://github.com/mozilla/geckodriver/releases
+                //It needs to be downloaded and added to the PATH enviroment variables
+                driver = new FirefoxDriver();
+            }
+            catch (System.Exception e)
+            {
+                //Prints a closes
+                Console.WriteLine(e.Message);
+                Console.ReadKey();
+                return;
+            }
+
+            //GrabUserDetails();
             LoginToPage();
             var Elements = WorkThroughTable();
             GrabTimeTableData(Elements);
+
+            SyncToOutlook();
 
             driver.Quit();
         }
@@ -55,6 +75,62 @@ namespace Hull_Timetable_To_Outlook
 
             //Shows timetable
             ClickElement("bGetTimetable");
+        }
+
+        static void SyncToOutlook()
+        {
+            foreach (var lecture in timetable_lectures)
+            {
+                TimeSpan startTime = TimeSpan.FromHours(lecture.StartTime);
+                TimeSpan endTime = TimeSpan.FromHours(lecture.EndTime);
+
+                //Grabs how many days need to be added to the week start
+                int weekIndex = Array.FindIndex(daysOfTheWeek, w => w == lecture.WeekDay);
+
+                //Loops round all the time periods and breaks them down into individual weeks
+                foreach (var week in lecture.TimePeriod)
+                {
+                    for (int i = week.StartWeek; i <= week.EndWeek; i++)
+                    {
+                        DateTime date = WeekNumberToDate(i);
+
+                        //Moves the date from the start of the week
+                        date = date.AddDays(weekIndex);
+
+                        DateTime start = date.Add(startTime);
+                        DateTime end = date.Add(endTime);
+
+                        string subject = lecture.ModuleTitle;
+                        string location = lecture.RoomName;
+                        string body = lecture.LecturerName;
+
+                        CreateAppoitment(start, end, subject, location, body);
+                    }
+                }
+            }
+
+            Console.WriteLine("DONE!");
+            Console.ReadKey();
+        }
+        static void CreateAppoitment(DateTime start, DateTime end, string subject, string location, string body)
+        {
+            AppointmentItem appointment = null;
+            Application application = new Application();
+            try
+            {
+                appointment = (AppointmentItem)application.CreateItem(OlItemType.olAppointmentItem);
+                appointment.Start = start;
+                appointment.End = end;
+                appointment.Subject = subject;
+                appointment.Location = location;
+                appointment.Body = body;
+                appointment.BusyStatus = OlBusyStatus.olOutOfOffice;
+                appointment.Save();
+            }
+            finally
+            {
+                if (appointment != null) Marshal.ReleaseComObject(appointment);
+            }
         }
 
         static List<Element> WorkThroughTable()
@@ -173,18 +249,12 @@ namespace Hull_Timetable_To_Outlook
                 lecturerName = Regex.Match(lines[2], regex_name).Value;
 
                 //Data range is obtained by a Regex that looks for "<" and ">" that encase a date range
-                string regex_dataRange = @"<.+>";
-
-                string weekRanges = Regex.Match(lines[0], regex_dataRange).Value;
-
+                string regex_dataRange = @"(([0-9]+\-[0-9]+)|([0-9]+))(\, (([0-9]+\-[0-9]+)|([0-9]+)))*";
+                string weekRanges = Regex.Match(lines[2], regex_dataRange).Value;
 
                 List<WeekRange> weekRangeList = new List<WeekRange>();
                 if (weekRanges != "")
                 {
-                    // Removes the encasing "<" and ">"
-                    weekRanges = weekRanges.Remove(0, 1);
-                    weekRanges = weekRanges.Remove(weekRanges.Length - 1, 1);
-
                     //If it's a multi week
                     if (weekRanges.Contains(","))
                     {
@@ -201,7 +271,10 @@ namespace Hull_Timetable_To_Outlook
                         weekRangeList.Add(ParseWeekRange(weekRanges));
                     }
                 }
-                else { continue;  } // Skip this value
+                else
+                {
+                    continue;
+                } // Skip this value
 
                 //Adds the completed object
                 Lecture lecture = new Lecture(
