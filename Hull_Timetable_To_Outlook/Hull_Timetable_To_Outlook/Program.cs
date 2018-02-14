@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using Microsoft.Office.Interop.Outlook;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Hull_Timetable_To_Outlook
 {
@@ -19,7 +20,7 @@ namespace Hull_Timetable_To_Outlook
         private static string m_email = "afray@hotmail.co.uk";
 
         private static IWebDriver driver;
-        
+
         //Definitions
         private static DateTime week1 = new DateTime(2017, 8, 21);
         private static readonly string[] daysOfTheWeek = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday" };
@@ -45,10 +46,8 @@ namespace Hull_Timetable_To_Outlook
             LoginToPage();
             var Elements = WorkThroughTable();
             GrabTimeTableData(Elements);
-
-            SyncToOutlook();
-
             driver.Quit();
+            SyncToOutlook();
         }
 
         static void GrabUserDetails()
@@ -100,22 +99,24 @@ namespace Hull_Timetable_To_Outlook
                         DateTime start = date.Add(startTime);
                         DateTime end = date.Add(endTime);
 
-                        string subject = lecture.ModuleTitle;
+                        string subject = lecture.ModuleTitle + " " + lecture.LecturerName;
                         string location = lecture.RoomName;
-                        string body = lecture.LecturerName;
 
-                        CreateAppoitment(start, end, subject, location, body);
+                        CreateAppoitment(start, end, subject, location);
                     }
                 }
             }
-
             Console.WriteLine("DONE!");
-            Console.ReadKey();
         }
-        static void CreateAppoitment(DateTime start, DateTime end, string subject, string location, string body)
+        static void CreateAppoitment(DateTime start, DateTime end, string subject, string location)
         {
             AppointmentItem appointment = null;
             Application application = new Application();
+
+            var mapiNamespace = application.GetNamespace("MAPI");
+            var CalendarFolder = mapiNamespace.GetDefaultFolder(OlDefaultFolders.olFolderCalendar);
+            var appointmentItems = CalendarFolder.Items;
+
             try
             {
                 appointment = (AppointmentItem)application.CreateItem(OlItemType.olAppointmentItem);
@@ -123,9 +124,14 @@ namespace Hull_Timetable_To_Outlook
                 appointment.End = end;
                 appointment.Subject = subject;
                 appointment.Location = location;
-                appointment.Body = body;
                 appointment.BusyStatus = OlBusyStatus.olOutOfOffice;
-                appointment.Save();
+
+                //Checks for exisiting appointments
+                //TODO: This stops duplicates from being created, but what if another appointment was a confict that was unrelated to uni?
+                if (appointment.Conflicts == null)
+                {
+                    appointment.Save();
+                }
             }
             finally
             {
@@ -184,7 +190,7 @@ namespace Hull_Timetable_To_Outlook
                 foreach (var cell in all_cells)
                 {
                     //Checks if they're separate cell value 
-                    if (cell.GetAttribute("class") == "cell-border" || 
+                    if (cell.GetAttribute("class") == "cell-border" ||
                         cell.GetAttribute("class") == "object-cell-border")
                     {
                         double startTime = 9 + (position * 0.25);
@@ -281,10 +287,10 @@ namespace Hull_Timetable_To_Outlook
                     element.StartTime,
                     element.EndTime,
                     element.weekDay,
-                    moduleCode.Trim(), 
-                    moduleTitle.Trim(), 
-                    lecturerName.Trim(), 
-                    roomName.Trim(), 
+                    moduleCode.Trim(),
+                    moduleTitle.Trim(),
+                    lecturerName.Trim(),
+                    roomName.Trim(),
                     weekRangeList);
 
                 timetable_lectures.Add(lecture);
@@ -340,6 +346,23 @@ namespace Hull_Timetable_To_Outlook
         {
             IWebElement query = driver.FindElement(By.Id(form_id));
             query.Click();
+        }
+
+        static string MD5_Hash(string input_str)
+        {
+            byte[] input = System.Text.Encoding.ASCII.GetBytes(input_str);
+            byte[] output = null;
+            using (System.Security.Cryptography.MD5 md5 = System.Security.Cryptography.MD5.Create())
+            {
+                output = md5.ComputeHash(input);
+            }
+
+            var sb = new StringBuilder();
+            for (int i = 0; i < output.Length; i++)
+            {
+                sb.Append(output[i].ToString("X2"));
+            }
+            return sb.ToString();
         }
     }
 
